@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AppState, BodyProfile, PantryItem, Supplement, TakeoutDish, AILoadingState } from '../types';
+import { DEFAULT_TAKEOUT_DISHES } from '../data/takeoutDB';
 
 const defaultProfile: BodyProfile = {
   height: 170,
@@ -20,7 +21,7 @@ export const useStore = create<AppState>()(
       bodyProfile: defaultProfile,
       pantry: [],
       supplements: [],
-      takeoutDishes: [],
+      takeoutDishes: DEFAULT_TAKEOUT_DISHES,
       bodyAnalysis: null,
       mealPlan: null,
       apiKey: '',
