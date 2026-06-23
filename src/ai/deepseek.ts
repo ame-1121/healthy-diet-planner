@@ -43,7 +43,7 @@ async function callDeepSeek(
   return data.choices[0].message.content;
 }
 
-// 修复常见 JSON 语法问题
+// 修复常见 JSON 语法问题（含嵌套闭合修复）
 function repairJSON(text: string): string {
   let cleaned = text
     .replace(/\/\/.*$/gm, '')          // 移除 // 注释
@@ -51,47 +51,82 @@ function repairJSON(text: string): string {
     .replace(/,\s*]/g, ']')            // 移除尾部多余逗号 ]
     .replace(/,\s*,/g, ',')            // 合并连续逗号
     .replace(/\t/g, ' ')               // tab → 空格
-    .replace(/\\(?!["\\/bfnrtu])/g, '\\\\'); // 修复不合法转义
+    .replace(/\n/g, ' ')               // 换行 → 空格 (JSON 中无关紧要)
+    .replace(/\r/g, '');               // 移除 \r
 
-  // 如果 JSON 不完整（缺闭合），尝试修复
-  const openBraces = (cleaned.match(/\{/g) || []).length;
-  const closeBraces = (cleaned.match(/\}/g) || []).length;
-  const openBrackets = (cleaned.match(/\[/g) || []).length;
-  const closeBrackets = (cleaned.match(/\]/g) || []).length;
+  // 修复不合法的转义
+  cleaned = cleaned.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
 
-  if (openBraces > closeBraces) {
-    cleaned += '}'.repeat(openBraces - closeBraces);
+  // 如果 JSON 不完整，按嵌套顺序补括号
+  const chars: string[] = [];
+  const stack: string[] = [];
+  let inString = false;
+  let prevChar = '';
+
+  for (const ch of cleaned) {
+    if (ch === '"' && prevChar !== '\\') {
+      inString = !inString;
+    }
+    if (!inString) {
+      if (ch === '{') stack.push('}');
+      else if (ch === '[') stack.push(']');
+      else if (ch === '}' || ch === ']') {
+        if (stack.length > 0 && stack[stack.length - 1] === ch) stack.pop();
+      }
+    }
+    chars.push(ch);
+    prevChar = ch;
   }
-  if (openBrackets > closeBrackets) {
-    cleaned += ']'.repeat(openBrackets - closeBrackets);
+
+  // 按正确嵌套顺序补全缺失的闭合括号
+  if (stack.length > 0) {
+    cleaned += stack.reverse().join('');
   }
 
   return cleaned;
 }
 
 function extractJSON(text: string): string {
-  // 1. 从 markdown code fence 中提取
-  const fence = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (fence && fence[1]) {
-    const inner = fence[1].trim();
-    if (inner.startsWith('{') || inner.startsWith('[')) return inner;
-  }
-  // 2. 找第一个 { 和匹配的 }
-  const brace = text.indexOf('{');
-  if (brace >= 0) {
+  // 策略：先暴力删除所有 markdown fence 标记，再找 JSON
+  // DeepSeek 有时在 json_object 模式下仍包裹 ```json ... ```
+
+  // 1. 暴力去 markdown：删除所有以 ``` 开头的行
+  let stripped = text
+    .split('\n')
+    .filter(line => !line.trim().match(/^```\s*$/))
+    .map(line => line.replace(/^```\w*/, ''))  // 移除行首的 ```json 等
+    .join('\n')
+    .trim();
+
+  // 2. 找第一个 { 和最后一个 }
+  const firstBrace = stripped.indexOf('{');
+  const lastBrace = stripped.lastIndexOf('}');
+
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    // 验证这对括号内的 JSON 是否完整（粗略检查）
+    const candidate = stripped.slice(firstBrace, lastBrace + 1);
+    const opensBrace = (candidate.match(/\{/g) || []).length;
+    const closesBrace = (candidate.match(/\}/g) || []).length;
+    const opensBracket = (candidate.match(/\[/g) || []).length;
+    const closesBracket = (candidate.match(/\]/g) || []).length;
+
+    if (opensBrace >= closesBrace && opensBracket >= closesBracket) {
+      return candidate;
+    }
+
+    // 括号配对不完美但有值，尝试用 bracket-counting 精确定位
     let depth = 0;
-    for (let i = brace; i < text.length; i++) {
-      if (text[i] === '{') depth++;
-      else if (text[i] === '}') {
+    for (let i = firstBrace; i < stripped.length; i++) {
+      if (stripped[i] === '{') depth++;
+      else if (stripped[i] === '}') {
         depth--;
-        if (depth === 0) return text.slice(brace, i + 1);
+        if (depth === 0) return stripped.slice(firstBrace, i + 1);
       }
     }
   }
-  // 3. 移除所有 markdown 标记后再试
-  const cleaned = text.replace(/```[a-z]*\s*/gi, '').replace(/```/g, '').trim();
-  if (cleaned.startsWith('{') || cleaned.startsWith('[')) return cleaned;
-  return text;
+
+  // 3. 都没找到就返回原文
+  return stripped;
 }
 
 // ========== 分析身体数据 ==========
