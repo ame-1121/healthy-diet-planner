@@ -1,200 +1,235 @@
 import type { BodyProfile, BodyAnalysis, PantryItem, Supplement, TakeoutDish, WeeklyMealPlan } from '../types';
 
 const API_BASE = 'https://api.deepseek.com';
+const MODEL = 'deepseek-chat';
 
-async function callDeepSeek(
+// ==================== 核心：调用 DeepSeek ====================
+async function chat(
   apiKey: string,
-  systemPrompt: string,
-  userMessage: string,
-  options?: { jsonMode?: boolean; maxTokens?: number }
+  system: string,
+  user: string,
+  maxTokens = 2048
 ): Promise<string> {
-  const body: Record<string, any> = {
-    model: 'deepseek-chat',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMessage },
-    ],
-    temperature: 0.7,
-  };
-
-  // 强制 JSON 输出模式
-  if (options?.jsonMode) {
-    body.response_format = { type: 'json_object' };
-  }
-
-  // 不设 token 上限则用最大值
-  if (options?.maxTokens) {
-    body.max_tokens = options.maxTokens;
-  }
-  // 不传 max_tokens，让 API 用默认最大值
-
   const res = await fetch(`${API_BASE}/v1/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify(body),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      max_tokens: maxTokens,
+      temperature: 0.3,  // 低温度提高 JSON 稳定性
+    }),
   });
 
-  if (!res.ok) { const err = await res.text(); throw new Error(`DeepSeek API error (${res.status}): ${err}`); }
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`DeepSeek API (${res.status}): ${err.slice(0, 300)}`);
+  }
   const data = await res.json();
-  // 检查是否因 token 不足被截断
   if (data.choices[0].finish_reason === 'length') {
-    throw new Error('AI 输出被截断（token 不足），请重试。已自动优化。');
+    throw new Error('AI 输出被截断（token 不足），已自动增加，请重试。');
   }
   return data.choices[0].message.content;
 }
 
-// 修复常见 JSON 语法问题（含嵌套闭合修复）
-function repairJSON(text: string): string {
-  let cleaned = text
-    .replace(/\/\/.*$/gm, '')          // 移除 // 注释
-    .replace(/,\s*}/g, '}')            // 移除尾部多余逗号 }
-    .replace(/,\s*]/g, ']')            // 移除尾部多余逗号 ]
-    .replace(/,\s*,/g, ',')            // 合并连续逗号
-    .replace(/\t/g, ' ')               // tab → 空格
-    .replace(/\n/g, ' ')               // 换行 → 空格 (JSON 中无关紧要)
-    .replace(/\r/g, '');               // 移除 \r
+// ==================== 超粗暴 JSON 提取 ====================
+function parseAIResponse<T>(raw: string, label: string): T {
+  // 第一步：打印原始输出的头尾便于调试
+  const head = raw.slice(0, 200);
+  const tail = raw.length > 200 ? raw.slice(-100) : '';
 
-  // 修复不合法的转义
-  cleaned = cleaned.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+  // 第二步：删除所有反引号字符（彻底消灭 markdown fence）
+  let text = raw.replace(/`/g, '');
 
-  // 如果 JSON 不完整，按嵌套顺序补括号
-  const chars: string[] = [];
-  const stack: string[] = [];
-  let inString = false;
-  let prevChar = '';
-
-  for (const ch of cleaned) {
-    if (ch === '"' && prevChar !== '\\') {
-      inString = !inString;
-    }
-    if (!inString) {
-      if (ch === '{') stack.push('}');
-      else if (ch === '[') stack.push(']');
-      else if (ch === '}' || ch === ']') {
-        if (stack.length > 0 && stack[stack.length - 1] === ch) stack.pop();
-      }
-    }
-    chars.push(ch);
-    prevChar = ch;
+  // 第三步：精确找最外层 { ... }
+  const start = text.indexOf('{');
+  if (start === -1) {
+    throw new Error(`${label}: 未找到 JSON ({})\n原始(前200字): ${head}`);
   }
 
-  // 按正确嵌套顺序补全缺失的闭合括号
-  if (stack.length > 0) {
-    cleaned += stack.reverse().join('');
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
   }
 
-  return cleaned;
+  let json = '';
+  if (end === -1) {
+    // JSON 不完整，取到末尾并尝试补闭合括号
+    json = text.slice(start);
+    let depth2 = 0;
+    for (const ch of json) {
+      if (ch === '{') depth2++;
+      else if (ch === '}') depth2--;
+    }
+    if (depth2 > 0) json += '}'.repeat(depth2);
+    // 同样补数组
+    let arrDepth = 0;
+    for (const ch of json) { if (ch === '[') arrDepth++; else if (ch === ']') arrDepth--; }
+    if (arrDepth > 0) json += ']'.repeat(arrDepth);
+  } else {
+    json = text.slice(start, end + 1);
+  }
+
+  // 第四步：修复常见 JSON 语法错误
+  json = json
+    .replace(/,\s*}/g, '}')      // 多余逗号 }
+    .replace(/,\s*]/g, ']')      // 多余逗号 ]
+    .replace(/,\s*,/g, ',')      // 连续逗号
+    // eslint-disable-next-line
+    .replace(/:\s*undefined/g, ':null')  // undefined → null
+    .replace(/:\s*NaN/g, ':null');       // NaN → null
+
+  // 第五步：尝试解析
+  try {
+    return JSON.parse(json) as T;
+  } catch (e1: any) {
+    // 第六步：更暴力的修复——按字符串逐字符重新组装
+    try {
+      const repaired = bruteForceRepair(json);
+      return JSON.parse(repaired) as T;
+    } catch (e2: any) {
+      throw new Error(
+        `${label} 解析失败:\n` +
+        `步骤1: ${e1.message}\n` +
+        `步骤2: ${e2.message}\n\n` +
+        `原始前200字: ${head}\n` +
+        `原始后100字: ${tail}\n` +
+        `提取JSON前200字: ${json.slice(0, 200)}`
+      );
+    }
+  }
 }
 
-function extractJSON(text: string): string {
-  // 策略：先暴力删除所有 markdown fence 标记，再找 JSON
-  // DeepSeek 有时在 json_object 模式下仍包裹 ```json ... ```
+function bruteForceRepair(json: string): string {
+  // 逐字符重建，在字符串外修复常见问题
+  const out: string[] = [];
+  let inStr = false;
+  let prev = '';
+  let i = 0;
 
-  // 1. 暴力去 markdown：删除所有以 ``` 开头的行
-  let stripped = text
-    .split('\n')
-    .filter(line => !line.trim().match(/^```\s*$/))
-    .map(line => line.replace(/^```\w*/, ''))  // 移除行首的 ```json 等
-    .join('\n')
-    .trim();
+  while (i < json.length) {
+    const ch = json[i];
 
-  // 2. 找第一个 { 和最后一个 }
-  const firstBrace = stripped.indexOf('{');
-  const lastBrace = stripped.lastIndexOf('}');
-
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    // 验证这对括号内的 JSON 是否完整（粗略检查）
-    const candidate = stripped.slice(firstBrace, lastBrace + 1);
-    const opensBrace = (candidate.match(/\{/g) || []).length;
-    const closesBrace = (candidate.match(/\}/g) || []).length;
-    const opensBracket = (candidate.match(/\[/g) || []).length;
-    const closesBracket = (candidate.match(/\]/g) || []).length;
-
-    if (opensBrace >= closesBrace && opensBracket >= closesBracket) {
-      return candidate;
+    // 追踪字符串状态
+    if (ch === '"' && prev !== '\\') {
+      inStr = !inStr;
     }
 
-    // 括号配对不完美但有值，尝试用 bracket-counting 精确定位
-    let depth = 0;
-    for (let i = firstBrace; i < stripped.length; i++) {
-      if (stripped[i] === '{') depth++;
-      else if (stripped[i] === '}') {
-        depth--;
-        if (depth === 0) return stripped.slice(firstBrace, i + 1);
+    if (inStr) {
+      // 在字符串内部，原样保留但修复非法转义
+      if (ch === '\\' && i + 1 < json.length) {
+        const next = json[i + 1];
+        if (!'"\\/bfnrtu'.includes(next)) {
+          // 非法转义，吞掉反斜杠
+          out.push(next);
+          i += 2;
+          prev = ch;
+          continue;
+        }
       }
+      out.push(ch);
+    } else {
+      // 在字符串外部
+      // 跳过字符串外的换行符
+      if (ch === '\n' || ch === '\r') {
+        prev = ch;
+        i++;
+        continue;
+      }
+      out.push(ch);
     }
+
+    prev = ch;
+    i++;
   }
 
-  // 3. 都没找到就返回原文
-  return stripped;
+  let result = out.join('');
+
+  // 补括号
+  let brace = 0, bracket = 0;
+  for (const ch of result) {
+    if (ch === '{') brace++;
+    else if (ch === '}') brace--;
+    else if (ch === '[') bracket++;
+    else if (ch === ']') bracket--;
+  }
+  while (brace > 0) { result += '}'; brace--; }
+  while (bracket > 0) { result += ']'; bracket--; }
+
+  return result;
 }
 
-// ========== 分析身体数据 ==========
+// ==================== 1. 分析身体数据 ====================
 export async function analyzeBodyProfile(apiKey: string, profile: BodyProfile): Promise<BodyAnalysis> {
-  const systemPrompt = `你是注册营养师。根据输入数据精确计算并返回JSON。
+  const system = `你是注册营养师。严格按公式计算并只返回 JSON，不要任何解释。
 
-公式：
-- BMI = 体重kg/(身高m)²，保留1位
-- BMR = Mifflin-St Jeor（男:10×体重+6.25×身高-5×年龄+5，女:10×体重+6.25×身高-5×年龄-161）
-- TDEE = BMR×1.375
-- targetCalories：减脂=TDEE-400，增肌=TDEE+350，维持=TDEE
-- macroSplit(g)：减脂→蛋白2.2g/kg,脂肪≥0.8g/kg,碳水补剩余；增肌→蛋白1.8g/kg,脂肪≥1g/kg,碳水补剩余；维持→蛋白1.6g/kg,脂肪≥0.8g/kg,碳水补剩余
-- estimatedDaysToGoal = |目标体重-当前体重|÷0.6(周速)×7
-- weeklyWeightChange：每周体重变化kg(保留1位)
-- summary：3-5句中文建议
+计算公式：
+- BMI = 体重/(身高m)²，保留1位小数
+- BMR(Mifflin-St Jeor): 男=10×体重+6.25×身高-5×年龄+5, 女=10×体重+6.25×身高-5×年龄-161
+- TDEE = BMR × 1.375
+- targetCalories: 减脂=TDEE-400, 增肌=TDEE+350, 维持=TDEE
+- protein(g): 减脂=2.2×体重, 增肌=1.8×体重, 维持=1.6×体重
+- fat(g): max(0.8×体重, 总热量×0.2÷9)
+- carbs(g): (targetCalories - protein×4 - fat×9) ÷ 4
+- estimatedDaysToGoal: |目标体重-当前| ÷ 0.6 × 7
+- weeklyWeightChange: 正=增重,负=减重
 
-返回JSON格式：{"bmi":0,"bmr":0,"tdee":0,"targetCalories":0,"macroSplit":{"protein":0,"carbs":0,"fat":0},"estimatedDaysToGoal":0,"weeklyWeightChange":0,"summary":""}`;
+{
+  "bmi":0,"bmr":0,"tdee":0,"targetCalories":0,
+  "macroSplit":{"protein":0,"carbs":0,"fat":0},
+  "estimatedDaysToGoal":0,"weeklyWeightChange":0,
+  "summary":"3句中文建议"
+}`;
 
   const diff = profile.targetWeight - profile.weight;
-  const weightDir = diff > 0 ? '增重' : diff < 0 ? '减重' : '维持';
+  const user = `${profile.gender==='male'?'男':'女'} ${profile.age}岁 ${profile.height}cm ${profile.weight}→${profile.targetWeight}kg(${diff>0?'增':diff<0?'减':'维持'}${Math.abs(diff).toFixed(1)}) 体脂${profile.bodyFat}% ${profile.goal} ${profile.dietMethod} ${profile.cookingPreference}`;
 
-  const userMsg = `性别${profile.gender==='male'?'男':'女'} 年龄${profile.age} 身高${profile.height}cm 体重${profile.weight}kg→目标${profile.targetWeight}kg(${weightDir}${Math.abs(diff).toFixed(1)}kg) 体脂${profile.bodyFat}% 目标${profile.goal==='cut'?'减脂':profile.goal==='bulk'?'增肌':'维持'} 饮食${profile.dietMethod} 烹饪${profile.cookingPreference==='cook'?'开火':'不开火'}`;
-
-  const response = await callDeepSeek(apiKey, systemPrompt, userMsg, { jsonMode: true });
-  const json = extractJSON(response);
-  try {
-    return JSON.parse(repairJSON(json)) as BodyAnalysis;
-  } catch (e: any) {
-    throw new Error(`身体数据分析失败：${e.message}`);
-  }
+  const raw = await chat(apiKey, system, user, 1024);
+  return parseAIResponse<BodyAnalysis>(raw, '身体数据分析');
 }
 
-// ========== 搜索食材营养信息 ==========
-export async function searchFoodNutrition(apiKey: string, foodNames: string[]): Promise<{
-  results: Array<{ name: string; brand: string; category: string; nutrition: { calories: number; protein: number; carbs: number; fat: number; fiber: number; caffeine?: number }; bestMealTime: string[]; isDrink: boolean; drinkType: string; imageUrl: string; notes: string }>;
+// ==================== 2. 食材营养查询 ====================
+export async function searchFoodNutrition(apiKey: string, foods: string[]): Promise<{
+  results: Array<{
+    name: string; brand: string; category: string;
+    nutrition: { calories: number; protein: number; carbs: number; fat: number; fiber: number; caffeine?: number };
+    bestMealTime: string[]; isDrink: boolean; drinkType: string; imageUrl: string; notes: string;
+  }>;
 }> {
-  const systemPrompt = `食品营养数据库专家。返回JSON分析食材(每100g/ml)。
+  const system = `食品营养专家。只返回 JSON。饮品识别: 茶叶→drink/tea, 咖啡→drink/coffee, 花草茶(菊花/枸杞/玫瑰/金银花等)→drink/herbal, 冲剂(蛋白粉/代餐粉/电解质等冲泡品)→drink/supplement_drink。
 
-饮品识别：茶叶→drink/tea，咖啡→drink/coffee，花草茶(菊花/枸杞/玫瑰等)→drink/herbal，冲剂(蛋白粉/代餐粉等)→drink/supplement_drink
+每100g/ml 营养数据。caffeine mg/100ml(绿茶~30,红茶~40,乌龙~25,普洱~20,花草茶0)。
 
-返回：{"results":[{"name":"","brand":"","category":"protein|carb|fat|vegetable|fruit|dairy|drink|other","nutrition":{"calories":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"caffeine":0},"bestMealTime":["breakfast"],"isDrink":false,"drinkType":"tea|coffee|herbal|supplement_drink|other_drink|none","imageUrl":"","notes":""}]}`;
+{"results":[{"name":"","brand":"","category":"protein|carb|fat|vegetable|fruit|dairy|drink|other","nutrition":{"calories":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"caffeine":0},"bestMealTime":["breakfast"],"isDrink":false,"drinkType":"tea|coffee|herbal|supplement_drink|other_drink|none","imageUrl":"","notes":""}]}`;
 
-  const response = await callDeepSeek(apiKey, systemPrompt, `分析：${foodNames.join('、')}`, { jsonMode: true });
-  const json = extractJSON(response);
-  try {
-    return JSON.parse(repairJSON(json));
-  } catch (e: any) {
-    throw new Error(`食材分析失败：${e.message}`);
-  }
+  const raw = await chat(apiKey, system, `分析: ${foods.join('、')}`, 4096);
+  return parseAIResponse(raw, '食材分析');
 }
 
-// ========== 解析购买链接 ==========
-export async function parsePurchaseLink(apiKey: string, link: string): Promise<{ name: string; brand: string; estimatedQuantity: number; unit: string; category: string; isDrink: boolean; notes: string }> {
-  const systemPrompt = `电商商品提取。支持淘宝/京东/拼多多/抖音/1688/小红书/美团等链接。
+// ==================== 3. 购买链接解析 ====================
+export async function parsePurchaseLink(apiKey: string, link: string): Promise<{
+  name: string; brand: string; estimatedQuantity: number; unit: string; category: string; isDrink: boolean; notes: string;
+}> {
+  const system = `电商商品提取。支持 淘宝/京东/拼多多/抖音/1688/小红书/美团 等链接。
+{"name":"产品名(精确到规格)","brand":"品牌(不可知则'通用')","estimatedQuantity":1,"unit":"g/个/袋/瓶/盒/包/罐","category":"protein|carb|fat|vegetable|fruit|dairy|drink|other|unknown","isDrink":false,"notes":"(简短说明)"}
+饮品/茶/咖啡/冲剂类 isDrink=true,category="drink"。完全无法识别 name="未知商品"。`;
 
-返回JSON：{"name":"产品名","brand":"品牌","estimatedQuantity":数量(默认1),"unit":"g/个/袋/瓶/盒/包","category":"protein|carb|fat|vegetable|fruit|dairy|drink|other|unknown","isDrink":false,"notes":""}
-饮品/茶叶/咖啡/冲剂类isDrink=true,category="drink"。无法识别name="未知商品"。`;
-
-  const response = await callDeepSeek(apiKey, systemPrompt, link, { jsonMode: true, maxTokens: 1024 });
-  const json = extractJSON(response);
-  try {
-    return JSON.parse(repairJSON(json));
-  } catch (e: any) {
-    throw new Error(`链接解析失败：${e.message}`);
-  }
+  const raw = await chat(apiKey, system, link, 1024);
+  return parseAIResponse(raw, '链接识别');
 }
 
-// ========== 生成一周食谱 ==========
+// ==================== 4. 生成一周食谱 ====================
 export async function generateMealPlan(
   apiKey: string,
   profile: BodyProfile,
@@ -209,98 +244,93 @@ export async function generateMealPlan(
   const hasTakeout = takeoutDishes.length > 0;
 
   const priorityItems = pantry.filter(p => p.priority && (p.remainingQuantity ?? p.totalQuantity) > 0);
-  const regularItems = pantry.filter(p => !p.priority && (p.remainingQuantity ?? p.totalQuantity) > 0);
   const drinkItems = pantry.filter(p => p.isDrink || p.category === 'drink');
-  const allItems = [...priorityItems, ...regularItems];
+  const allItems = [...priorityItems, ...pantry.filter(p => !p.priority)];
 
-  // 食材描述（精简）
-  const pantryList = allItems.map(p => {
-    const prio = p.priority ? '⚡' : '';
-    const nut = p.nutrition ? `${p.nutrition.calories}kcal P${p.nutrition.protein}g C${p.nutrition.carbs}g F${p.nutrition.fat}g` : '未分析';
-    const drink = p.isDrink ? ` 🍵${p.drinkType||'饮品'}` : '';
-    return `[${p.id}] ${prio}${p.name} ${p.brand||''} | ${nut} | ${p.remainingQuantity??p.totalQuantity}${p.unit}${drink}`;
-  }).join('\n');
+  // 食材描述 (压缩)
+  const pantryStr = allItems.length > 0
+    ? allItems.map(p => {
+        const prio = p.priority ? '⚡' : '';
+        const nut = p.nutrition ? `${p.nutrition.calories}kcal P${p.nutrition.protein} C${p.nutrition.carbs} F${p.nutrition.fat}` : '?';
+        return `[${p.id}]${prio}${p.name}|${nut}|${p.remainingQuantity??p.totalQuantity}${p.unit}`;
+      }).join('; ')
+    : '空';
 
-  // 外卖列表（精简）
-  const takeoutList = hasTakeout
-    ? takeoutDishes.map(d => `[${d.id}]${d.name}(${d.restaurant}) ${d.nutrition.calories}kcal P${d.nutrition.protein}g C${d.nutrition.carbs}g F${d.nutrition.fat}g`).join('\n')
+  // 外卖库 (压缩)
+  const takeoutStr = hasTakeout
+    ? takeoutDishes.map(d => `[${d.id}]${d.name}(${d.restaurant})${d.nutrition.calories}kcal`).join('; ')
     : '';
 
-  // 保健品列表（精简）
-  const suppList = hasSupp
-    ? supplements.map(s => `[${s.id}]${s.name}(${s.brand}) ${s.dosage}`).join('\n')
-    : '';
+  // 构建系统提示词
+  const parts: string[] = [];
 
-  // ====== 组装精简但完整的系统提示词 ======
-  const systemPrompt = `你是一位资深注册营养师(RD)，精通营养时序、代谢调控、营养协同与补充剂科学。
+  parts.push(`你是顶级注册营养师。生成一周7天、每天4餐(breakfast/lunch/dinner/snack)的饮食计划。只返回 JSON。`);
 
-🔥 核心规则：
-1. 每天4餐：breakfast/lunch/dinner/snack。日热量±80kcal
-2. 营养时序：早→高蛋白+碳水,午→均衡+蔬菜,晚→低碳水+高蛋白,加餐→蛋白+少量碳/脂。晚餐碳水≤全天25%，睡前3h完成
-3. 营养协同：维C+铁↑,脂溶维生素需配脂肪,钙铁分服(≥2h),蛋白≥25g/餐
-4. 中式饮食，一周≥25种食材
+  parts.push(`规则：
+- 日热量≈${analysis.targetCalories}kcal(±80) P${analysis.macroSplit.protein}g C${analysis.macroSplit.carbs}g F${analysis.macroSplit.fat}g
+- 早高蛋白+碳水，午均衡+蔬菜，晚低碳+高蛋白，加餐轻蛋白
+- 晚餐碳水≤全天25%，睡前3h完成，蛋白≥25g/餐
+- 中式，一周≥25种食材`);
 
-⚡ 优先消耗食材（排在前3天集中使用）：
-${priorityItems.length > 0 ? priorityItems.map(p => `${p.name}(余${p.remainingQuantity??p.totalQuantity}${p.unit})`).join('、') : '无'}
+  if (priorityItems.length > 0) {
+    parts.push(`⚡优先消耗(前3天集中用): ${priorityItems.map(p => p.name).join('、')}`);
+  }
 
-🍵 饮品清单（安排进每日饮水时间表）：
-${drinkItems.length > 0 ? drinkItems.map(d => `${d.name}(${d.drinkType||'饮品'},余${d.remainingQuantity??d.totalQuantity}${d.unit})`).join('、') : '按标准饮水推荐'}
+  if (drinkItems.length > 0) {
+    parts.push(`🍵饮水: 每天waterIntake含5-8条(茶上午/花草全天,咖啡因<400mg,饮品:${drinkItems.map(d=>d.name).join('、')})`);
+  } else {
+    parts.push('🍵饮水: 每天waterIntake含5-8条，总饮水量2-2.5L');
+  }
 
-💊 保健品（自动决定最佳服用时机）：
-${hasSupp ? supplements.map(s => `${s.name} ${s.dosage}`).join('、') : '无'}
-- 脂溶维生素(A/D/E/K)随含脂餐, 维C随早/午餐, B族早随餐, 铁剂早后1h+维C, 钙随晚, 镁睡前, 锌随餐, 鱼油随含脂餐, 益生菌空腹, 蛋白粉运动后
+  if (hasSupp) {
+    parts.push(`💊保健品(AI决定服用时机): ${supplements.map(s=>`${s.name}(${s.dosage})`).join('、')}。原则:脂溶维随脂餐,维C早午,B族早,铁剂早后1h+维C,钙晚,镁睡前,锌随餐,鱼油随脂餐,益生菌空腹`);
+  }
 
-🛵 ${isNoCook ? `烹饪方式：只选外卖/即食/冲泡/生食/微波。外卖从以下库选：
-${takeoutList}` : '可开火：煎蒸煮炒烤焖炖凉拌生食微波'}
-${isCarbCycle ? '碳循环：高碳(碳水≥50%,2天)→中碳(30-40%,2天)→低碳(≤20%,2天)→无碳(<30g,1天)，不连续同类型' : ''}
+  if (isNoCook) {
+    parts.push(`🛵不开火:仅外卖/即食/冲泡/生食/微波${hasTakeout?`，外卖库:${takeoutStr}`:''}`);
+  } else {
+    parts.push('🍳开火:煎蒸煮炒烤焖炖凉拌');
+  }
 
-📤 返回JSON（必须返回完整合法的JSON，不要省略任何字段）：
-{
-  "days": [
-    {
-      "day": "monday",
-      "meals": {
-        "breakfast": [{"name":"","amount":"","calories":0,"protein":0,"carbs":0,"fat":0,"cookingMethod":"","fromPantry":false,"pantryItemId":"","pantryItemName":"","isSupplement":false}],
-        "lunch": [],
-        "dinner": [],
-        "snack": []
-      },
-      "dailyTotals": {"calories":0,"protein":0,"carbs":0,"fat":0},
-      ${isCarbCycle ? '"carbCyclePhase":"",' : ''}
-      "cookingNote": "",
-      ${hasSupp ? '"supplements": [{"supplementId":"","name":"","timing":"before_meal|with_meal|after_meal","meal":"breakfast|lunch|dinner|snack"}],' : ''}
-      "waterIntake": {"totalMl": 0, "schedule": [{"time":"00:00","amountMl":0,"drinkName":"","note":""}]}
-    }
-  ],
-  "pantryUsageSummary": [{"pantryItemId":"","name":"","usedPerWeek":0,"remainingWeeks":0,"daysToEmpty":0}],
-  "totalDaysToGoal": 0,
-  "waterOverview": ""
-}
+  if (isCarbCycle) {
+    parts.push('🔄碳循环:高碳2天→中碳2天→低碳2天→无碳1天');
+  }
 
-每道菜必须填cookingMethod。fromPantry=true必须填pantryItemId。waterIntake每天必含5-8条schedule。` + (isCarbCycle ? '每天必填carbCyclePhase。' : '') + (hasSupp ? '每天必含supplements数组。' : '');
+  // JSON 模板
+  const carbPhaseField = isCarbCycle ? '"carbCyclePhase":"",' : '';
+  const suppField = hasSupp ? '"supplements":[{"supplementId":"","name":"","timing":"before_meal|with_meal|after_meal","meal":"breakfast|lunch|dinner|snack"}],' : '';
+
+  parts.push(`JSON模板:
+{"days":[{
+"day":"monday",
+"meals":{"breakfast":[{"name":"","amount":"","calories":0,"protein":0,"carbs":0,"fat":0,"cookingMethod":"","fromPantry":false,"pantryItemId":"","pantryItemName":"","isSupplement":false}],"lunch":[],"dinner":[],"snack":[]},
+"dailyTotals":{"calories":0,"protein":0,"carbs":0,"fat":0},
+${carbPhaseField}
+"cookingNote":"",
+${suppField}
+"waterIntake":{"totalMl":0,"schedule":[{"time":"08:00","amountMl":300,"drinkName":"温水","note":""}]}
+}],
+"pantryUsageSummary":[{"pantryItemId":"","name":"","usedPerWeek":0,"remainingWeeks":0,"daysToEmpty":0}],
+"totalDaysToGoal":${analysis.estimatedDaysToGoal},
+"waterOverview":""
+}`);
 
   const diff = profile.targetWeight - profile.weight;
 
-  const userMsg = `用户：${profile.gender==='male'?'男':'女'} ${profile.age}岁 ${profile.height}cm ${profile.weight}→${profile.targetWeight}kg(需${diff>0?'增':diff<0?'减':'维持'}${Math.abs(diff).toFixed(1)}kg) 体脂${profile.bodyFat}% 目标${profile.goal==='cut'?'减脂':profile.goal==='bulk'?'增肌':'维持'} ${profile.dietMethod} ${isNoCook?'不开火':'开火'}
-每日目标：${analysis.targetCalories}kcal P${analysis.macroSplit.protein}g C${analysis.macroSplit.carbs}g F${analysis.macroSplit.fat}g
+  const user = `${profile.gender==='male'?'男':'女'} ${profile.age}岁 ${profile.height}cm ${profile.weight}→${profile.targetWeight}kg(${diff>0?'增':diff<0?'减':'维持'}${Math.abs(diff).toFixed(1)}kg) 体脂${profile.bodyFat}%
 
-已有食材：
-${pantryList || '无'}
+食材: ${pantryStr}
+${priorityItems.length>0?'⚠️优先消耗食材前3天用完!':''}
+${drinkItems.length>0?'🍵饮品需入饮水schedule。':''}
+${hasSupp?'💊保健品自动安排。':''}
 
-${priorityItems.length > 0 ? '⚠️ 以上标记⚡的食材必须在前3天集中消耗！' : ''}
-${drinkItems.length > 0 ? '🍵 饮品安排进每日饮水schedule。' : ''}
-${hasSupp ? '💊 按规则自动配给保健品。' : ''}
+输出完整JSON(7天×4餐，全部字段不可省)。`;
 
-请输出完整JSON（7天×4餐，所有字段不可省略）。`;
+  const systemPrompt = parts.join('\n\n');
+  const raw = await chat(apiKey, systemPrompt, user, 16384);
 
-  const response = await callDeepSeek(apiKey, systemPrompt, userMsg, { jsonMode: true });
-  const extracted = extractJSON(response);
-  try {
-    const plan = JSON.parse(repairJSON(extracted)) as WeeklyMealPlan;
-    plan.generatedAt = Date.now();
-    return plan;
-  } catch (parseErr: any) {
-    const preview = response.slice(0, 400) + '\n...\n' + response.slice(-300);
-    throw new Error(`食谱JSON解析失败：${parseErr.message}\n\nAI返回预览：\n${preview}`);
-  }
+  // 解析
+  const plan = parseAIResponse<WeeklyMealPlan>(raw, '食谱生成');
+  plan.generatedAt = Date.now();
+  return plan;
 }
