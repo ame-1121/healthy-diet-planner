@@ -28,17 +28,30 @@ async function callDeepSeek(
 }
 
 function extractJSON(text: string): string {
-  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (match) return match[1].trim();
+  // 1. Try to find JSON inside markdown code fences (any variation)
+  const fence = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (fence && fence[1]) {
+    const inner = fence[1].trim();
+    // Verify it actually starts with { or [
+    if (inner.startsWith('{') || inner.startsWith('[')) {
+      return inner;
+    }
+  }
+  // 2. Find first { and matching }
   const brace = text.indexOf('{');
   if (brace >= 0) {
     let depth = 0;
     for (let i = brace; i < text.length; i++) {
       if (text[i] === '{') depth++;
-      if (text[i] === '}') depth--;
-      if (depth === 0) return text.slice(brace, i + 1);
+      else if (text[i] === '}') {
+        depth--;
+        if (depth === 0) return text.slice(brace, i + 1);
+      }
     }
   }
+  // 3. If all else fails, strip all markdown fences and try parsing
+  const cleaned = text.replace(/```[a-z]*\s*/gi, '').replace(/```/g, '').trim();
+  if (cleaned.startsWith('{') || cleaned.startsWith('[')) return cleaned;
   return text;
 }
 
@@ -366,8 +379,15 @@ ${hasSupplements ? '💊 请根据营养科学为每种保健品自动决定最�
 请生成完整的一周食谱JSON。
 `;
 
-  const response = await callDeepSeek(apiKey, systemPrompt, userMsg, 8192);
-  const plan = JSON.parse(extractJSON(response)) as WeeklyMealPlan;
-  plan.generatedAt = Date.now();
-  return plan;
+  const response = await callDeepSeek(apiKey, systemPrompt, userMsg, 12288);
+  const extracted = extractJSON(response);
+  try {
+    const plan = JSON.parse(extracted) as WeeklyMealPlan;
+    plan.generatedAt = Date.now();
+    return plan;
+  } catch (parseErr: any) {
+    // Show a snippet of what the AI actually returned for debugging
+    const preview = response.slice(0, 500) + (response.length > 500 ? '\n...\n' : '') + response.slice(-200);
+    throw new Error(`AI 返回的 JSON 格式异常：${parseErr.message}\n\nAI 原始返回值（头尾）：\n${preview}`);
+  }
 }
