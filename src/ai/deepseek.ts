@@ -295,101 +295,57 @@ export async function generateMealPlan(
   // JSON 模板
   const suppField = hasSupp ? '"supplements":[{"supplementId":"","name":"","timing":"before_meal|with_meal|after_meal","meal":"breakfast|lunch|dinner|snack"}],' : '';
 
+  // 每条 meal entry 的模板(不是 {...}，而是真实可参照的示例)
+  const entryExample = '{"name":"鸡蛋(煮)","amount":"2个","calories":140,"protein":12,"carbs":2,"fat":10,"cookingMethod":"煮","fromPantry":false,"pantryItemId":"","pantryItemName":"","isSupplement":false}';
+
+  parts.push(`每道菜必须像这样精确填写所有数字字段：${entryExample}
+⚠️ 这些数字必须是这道菜实际份量下真实的卡路里/蛋白/碳水/脂肪，不许照抄模板里的140/12/2/10！非库存食材也必须填真实营养值。
+每天的4餐所有菜的 calories加在一起要等于该天 dailyTotals.calories。同样 protein/carbs/fat 也要加总一致。`);
+
   if (isCarbCycle) {
     const highCarbG = Math.round(analysis.targetCalories * 0.50 / 4);
     const mediumCarbG = Math.round(analysis.targetCalories * 0.35 / 4);
     const lowCarbG = Math.round(analysis.targetCalories * 0.15 / 4);
+    const highFatG = Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - highCarbG * 4) / 9);
+    const medFatG  = Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - mediumCarbG * 4) / 9);
+    const lowFatG  = Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - lowCarbG * 4) / 9);
+    const noFatG   = Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - 7) / 9);
 
-    parts.push(`🔄 碳循环是天条，每项的 dailyTotals.carbs 若离目标超过 20g 即为失败。7 天序列是：高碳→高碳→中碳→中碳→低碳→低碳→无碳。按此顺序逐天填写 JSON 的 days 数组。`);
+    parts.push(`🔄 碳循环 7天序列&目标（每条 entry 的 nutrition 必须真实，dailyTotals 由所有 meal 加总得出）：
+monday   high-carb   日碳水≈${highCarbG}g  日脂肪≈${highFatG}g  日热量≈${analysis.targetCalories}kcal
+tuesday  high-carb   日碳水≈${highCarbG}g  日脂肪≈${highFatG}g  日热量≈${analysis.targetCalories}kcal
+wednesday medium-carb 日碳水≈${mediumCarbG}g 日脂肪≈${medFatG}g   日热量≈${analysis.targetCalories}kcal
+thursday medium-carb 日碳水≈${mediumCarbG}g 日脂肪≈${medFatG}g   日热量≈${analysis.targetCalories}kcal
+friday   low-carb    日碳水≈${lowCarbG}g   日脂肪≈${lowFatG}g   日热量≈${analysis.targetCalories}kcal
+saturday low-carb    日碳水≈${lowCarbG}g   日脂肪≈${lowFatG}g   日热量≈${analysis.targetCalories}kcal
+sunday   no-carb     日碳水<10g           日脂肪≈${noFatG}g    日热量≈${analysis.targetCalories}kcal`);
 
-    // 在 JSON 模板中显式展示全部 7 天
-    parts.push(`JSON 模板（碳循环版——每天 carbCyclePhase 已硬编码，100% 严格照抄）：
-{
-  "days": [
-    {
-      "day": "monday",
-      "carbCyclePhase": "high-carb",
-      "dailyTotals": {"calories": ${analysis.targetCalories}, "protein": ${analysis.macroSplit.protein}, "carbs": ${highCarbG}, "fat": ${Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - highCarbG * 4) / 9)}},
-      "meals": {"breakfast":[{...}], "lunch":[{...}], "dinner":[{...}], "snack":[{...}]},
-      "cookingNote": "高碳日",
-      ${suppField}
-      "waterIntake": {"totalMl": 2200, "schedule": [{"time":"08:00","amountMl":300,"drinkName":"温水","note":"起床"}]}
-    },
-    {
-      "day": "tuesday",
-      "carbCyclePhase": "high-carb",
-      "dailyTotals": {"calories": ${analysis.targetCalories}, "protein": ${analysis.macroSplit.protein}, "carbs": ${highCarbG}, "fat": ${Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - highCarbG * 4) / 9)}},
-      "meals": {"breakfast":[{...}], "lunch":[{...}], "dinner":[{...}], "snack":[{...}]},
-      "cookingNote": "高碳日",
-      ${suppField}
-      "waterIntake": {"totalMl": 2200, "schedule": [{"time":"08:00","amountMl":300,"drinkName":"温水","note":"起床"}]}
-    },
-    {
-      "day": "wednesday",
-      "carbCyclePhase": "medium-carb",
-      "dailyTotals": {"calories": ${analysis.targetCalories}, "protein": ${analysis.macroSplit.protein}, "carbs": ${mediumCarbG}, "fat": ${Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - mediumCarbG * 4) / 9)}},
-      "meals": {"breakfast":[{...}], "lunch":[{...}], "dinner":[{...}], "snack":[{...}]},
-      "cookingNote": "中碳日",
-      ${suppField}
-      "waterIntake": {"totalMl": 2200, "schedule": [{"time":"08:00","amountMl":300,"drinkName":"温水","note":"起床"}]}
-    },
-    {
-      "day": "thursday",
-      "carbCyclePhase": "medium-carb",
-      "dailyTotals": {"calories": ${analysis.targetCalories}, "protein": ${analysis.macroSplit.protein}, "carbs": ${mediumCarbG}, "fat": ${Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - mediumCarbG * 4) / 9)}},
-      "meals": {"breakfast":[{...}], "lunch":[{...}], "dinner":[{...}], "snack":[{...}]},
-      "cookingNote": "中碳日",
-      ${suppField}
-      "waterIntake": {"totalMl": 2200, "schedule": [{"time":"08:00","amountMl":300,"drinkName":"温水","note":"起床"}]}
-    },
-    {
-      "day": "friday",
-      "carbCyclePhase": "low-carb",
-      "dailyTotals": {"calories": ${analysis.targetCalories}, "protein": ${analysis.macroSplit.protein}, "carbs": ${lowCarbG}, "fat": ${Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - lowCarbG * 4) / 9)}},
-      "meals": {"breakfast":[{...}], "lunch":[{...}], "dinner":[{...}], "snack":[{...}]},
-      "cookingNote": "低碳日",
-      ${suppField}
-      "waterIntake": {"totalMl": 2200, "schedule": [{"time":"08:00","amountMl":300,"drinkName":"温水","note":"起床"}]}
-    },
-    {
-      "day": "saturday",
-      "carbCyclePhase": "low-carb",
-      "dailyTotals": {"calories": ${analysis.targetCalories}, "protein": ${analysis.macroSplit.protein}, "carbs": ${lowCarbG}, "fat": ${Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - lowCarbG * 4) / 9)}},
-      "meals": {"breakfast":[{...}], "lunch":[{...}], "dinner":[{...}], "snack":[{...}]},
-      "cookingNote": "低碳日",
-      ${suppField}
-      "waterIntake": {"totalMl": 2200, "schedule": [{"time":"08:00","amountMl":300,"drinkName":"温水","note":"起床"}]}
-    },
-    {
-      "day": "sunday",
-      "carbCyclePhase": "no-carb",
-      "dailyTotals": {"calories": ${analysis.targetCalories}, "protein": ${analysis.macroSplit.protein}, "carbs": ${Math.round(30 / 4)}, "fat": ${Math.round((analysis.targetCalories - analysis.macroSplit.protein * 4 - 7) / 9)}},
-      "meals": {"breakfast":[{...}], "lunch":[{...}], "dinner":[{...}], "snack":[{...}]},
-      "cookingNote": "无碳日",
-      ${suppField}
-      "waterIntake": {"totalMl": 2200, "schedule": [{"time":"08:00","amountMl":300,"drinkName":"温水","note":"起床"}]}
-    }
-  ],
-  "pantryUsageSummary": [{"pantryItemId":"","name":"","usedPerWeek":0,"remainingWeeks":0,"daysToEmpty":0}],
-  "totalDaysToGoal": ${analysis.estimatedDaysToGoal},
-  "waterOverview": ""
-}
-
-carbCyclePhase 值一个字不许改！dailyTotals 的 carbs 和 fat 必须落在上面对应数字 ±15g 之内。你只要把每个 meal 填满食物即可。`);
+    parts.push(`JSON 模板：
+{"days":[
+{"day":"monday","carbCyclePhase":"high-carb","meals":{"breakfast":[${entryExample}],"lunch":[${entryExample}],"dinner":[${entryExample}],"snack":[${entryExample}]},"dailyTotals":{"calories":0,"protein":0,"carbs":0,"fat":0},"cookingNote":"高碳日",${suppField}"waterIntake":{"totalMl":2200,"schedule":[{"time":"08:00","amountMl":300,"drinkName":"温水","note":"起床"}]}},
+{"day":"tuesday","carbCyclePhase":"high-carb","meals":{"breakfast":[],"lunch":[],"dinner":[],"snack":[]},"dailyTotals":{"calories":0,"protein":0,"carbs":0,"fat":0},"cookingNote":"高碳日",${suppField}"waterIntake":{"totalMl":2200,"schedule":[{"time":"08:00","amountMl":300,"drinkName":"温水","note":"起床"}]}},
+{"day":"wednesday","carbCyclePhase":"medium-carb","meals":{...},"dailyTotals":{...}},
+{"day":"thursday","carbCyclePhase":"medium-carb","meals":{...},"dailyTotals":{...}},
+{"day":"friday","carbCyclePhase":"low-carb","meals":{...},"dailyTotals":{...}},
+{"day":"saturday","carbCyclePhase":"low-carb","meals":{...},"dailyTotals":{...}},
+{"day":"sunday","carbCyclePhase":"no-carb","meals":{...},"dailyTotals":{...}}
+],"pantryUsageSummary":[],"totalDaysToGoal":${analysis.estimatedDaysToGoal},"waterOverview":""}
+carbCyclePhase 别改。dailyTotals 先填0，代码会自动根据 meals 重新计算。`);
   } else {
-    parts.push(`JSON 模板:
+    parts.push(`JSON 模板：
 {"days":[{
 "day":"monday",
-"meals":{"breakfast":[{"name":"","amount":"","calories":0,"protein":0,"carbs":0,"fat":0,"cookingMethod":"","fromPantry":false,"pantryItemId":"","pantryItemName":"","isSupplement":false}],"lunch":[],"dinner":[],"snack":[]},
+"meals":{"breakfast":[${entryExample}],"lunch":[${entryExample}],"dinner":[${entryExample}],"snack":[${entryExample}]},
 "dailyTotals":{"calories":0,"protein":0,"carbs":0,"fat":0},
 "cookingNote":"",
 ${suppField}
-"waterIntake":{"totalMl":0,"schedule":[{"time":"08:00","amountMl":300,"drinkName":"温水","note":""}]}
+"waterIntake":{"totalMl":2200,"schedule":[{"time":"08:00","amountMl":300,"drinkName":"温水","note":"起床"}]}
 }],
-"pantryUsageSummary":[{"pantryItemId":"","name":"","usedPerWeek":0,"remainingWeeks":0,"daysToEmpty":0}],
+"pantryUsageSummary":[],
 "totalDaysToGoal":${analysis.estimatedDaysToGoal},
 "waterOverview":""
-}`);
+}
+dailyTotals 填0（代码会重新求和）。每道菜的营养数字必须真实。`);
   }
 
   const diff = profile.targetWeight - profile.weight;
@@ -411,6 +367,28 @@ ${isCarbCycle ? '🔄碳循环：每天dailyTotals.carbs和carbCyclePhase必须�
   const plan = parseAIResponse<WeeklyMealPlan>(raw, '食谱生成');
   plan.generatedAt = Date.now();
 
+  // ====== 代码级重新计算 dailyTotals（不再信任 AI 填的数字）======
+  for (const day of plan.days) {
+    let sumCal = 0, sumP = 0, sumC = 0, sumF = 0;
+    const slots: Array<keyof typeof day.meals> = ['breakfast', 'lunch', 'dinner', 'snack'];
+    for (const slot of slots) {
+      for (const entry of (day.meals[slot] || [])) {
+        if (!entry.isSupplement) {
+          sumCal += Number(entry.calories) || 0;
+          sumP   += Number(entry.protein) || 0;
+          sumC   += Number(entry.carbs)   || 0;
+          sumF   += Number(entry.fat)     || 0;
+        }
+      }
+    }
+    day.dailyTotals = {
+      calories: Math.round(sumCal),
+      protein:  Math.round(sumP),
+      carbs:    Math.round(sumC),
+      fat:      Math.round(sumF),
+    };
+  }
+
   // ====== 碳循环验证 ======
   if (isCarbCycle) {
     const phases = plan.days.map(d => d.carbCyclePhase);
@@ -426,7 +404,7 @@ ${isCarbCycle ? '🔄碳循环：每天dailyTotals.carbs和carbCyclePhase必须�
       );
     }
 
-    // 检查碳水是否真正递减
+    // 检查碳水是否真正递减（使用重新计算后的值）
     const carbs = plan.days.map(d => d.dailyTotals.carbs);
     const highAvg = (carbs[0] + carbs[1]) / 2;
     const medAvg  = (carbs[2] + carbs[3]) / 2;
