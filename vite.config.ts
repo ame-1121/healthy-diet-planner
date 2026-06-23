@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [tailwindcss(), react()],
   server: {
     port: 3456,
-    open: '/',  // opens with BROWSER env var
+    host: '0.0.0.0',  // 允许局域网访问
+    open: '/',
   },
 })
