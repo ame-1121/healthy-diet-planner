@@ -17,6 +17,13 @@ const MEALS: { key: MealSlot; label: string; emoji: string }[] = [
   { key: 'snack', label: '加餐', emoji: '🍪' },
 ];
 
+const CARB_PHASE_LABELS: Record<string, { emoji: string; bg: string; text: string }> = {
+  'high-carb': { emoji: '🟢', bg: 'bg-green-900/40', text: 'text-green-300' },
+  'medium-carb': { emoji: '🟡', bg: 'bg-yellow-900/40', text: 'text-yellow-300' },
+  'low-carb': { emoji: '🟠', bg: 'bg-orange-900/40', text: 'text-orange-300' },
+  'no-carb': { emoji: '🔴', bg: 'bg-red-900/40', text: 'text-red-300' },
+};
+
 interface Props {
   plan: WeeklyMealPlan;
 }
@@ -30,8 +37,23 @@ function MealCell({ entries }: { entries: MealEntry[] }) {
       {entries.map((entry, i) => (
         <div key={i} className="text-xs leading-relaxed">
           <div className="flex items-center gap-1">
-            {entry.fromPantry && <span className="text-emerald-400 text-[10px]" title="来自已有食材">🏠</span>}
+            {entry.fromPantry && (
+              <span className="text-emerald-400 text-[10px]" title={`已有食材：${entry.pantryItemName || ''}`}>🏠</span>
+            )}
             <span className="text-white font-medium">{entry.name}</span>
+            {entry.cookingMethod && (
+              <span className="text-[10px] text-gray-500 ml-0.5" title={entry.cookingMethod}>
+                {entry.cookingMethod === '即食' || entry.cookingMethod === '生食' ? '🧊' :
+                 entry.cookingMethod === '冲泡' ? '☕' :
+                 entry.cookingMethod === '外卖' ? '🛵' :
+                 entry.cookingMethod === '蒸' ? '♨️' :
+                 entry.cookingMethod === '煮' ? '🍲' :
+                 entry.cookingMethod === '煎' ? '🍳' :
+                 entry.cookingMethod === '炒' ? '🔥' :
+                 entry.cookingMethod === '烤' ? '♨️' :
+                 entry.cookingMethod === '微波' ? '📡' : '🔪'}
+              </span>
+            )}
           </div>
           <div className="flex gap-2 text-[10px] text-gray-400">
             <span>{entry.amount}</span>
@@ -40,6 +62,12 @@ function MealCell({ entries }: { entries: MealEntry[] }) {
             <span className="text-yellow-400/70">C{entry.carbs}</span>
             <span className="text-orange-400/70">F{entry.fat}</span>
           </div>
+          {/* 已有食材来源 */}
+          {entry.fromPantry && entry.pantryItemName && (
+            <div className="text-[10px] text-emerald-500/70 ml-3">
+              ← {entry.pantryItemName}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -48,18 +76,30 @@ function MealCell({ entries }: { entries: MealEntry[] }) {
 
 function DayColumn({ dayPlan }: { dayPlan: DayMealPlan }) {
   const totals = dayPlan.dailyTotals;
+  const phaseStyle = dayPlan.carbCyclePhase ? CARB_PHASE_LABELS[dayPlan.carbCyclePhase] : null;
+
   return (
-    <div className="flex-1 min-w-[150px] border-r border-slate-700 last:border-r-0">
+    <div className="flex-1 min-w-[160px] border-r border-slate-700 last:border-r-0">
       {/* 日期头 */}
-      <div className="bg-slate-800 px-2 py-2 text-center border-b border-slate-700">
+      <div className="bg-slate-800 px-2 py-2 text-center border-b border-slate-700 space-y-1">
         <div className="text-xs text-gray-400">{DAYS.find((d) => d.key === dayPlan.day)?.label}</div>
-        <div className="text-[10px] text-gray-500">{dayPlan.day}</div>
+        {phaseStyle && (
+          <div className={`text-[10px] font-medium rounded-full px-2 py-0.5 inline-block ${phaseStyle.bg} ${phaseStyle.text}`}>
+            {phaseStyle.emoji} {dayPlan.carbCyclePhase === 'high-carb' ? '高碳日' :
+                                dayPlan.carbCyclePhase === 'medium-carb' ? '中碳日' :
+                                dayPlan.carbCyclePhase === 'low-carb' ? '低碳日' : '无碳日'}
+          </div>
+        )}
+        {dayPlan.cookingNote && (
+          <div className="text-[10px] text-gray-500">{dayPlan.cookingNote}</div>
+        )}
       </div>
+
       {/* 四餐 */}
       {MEALS.map((meal) => (
         <div
           key={meal.key}
-          className="border-b border-slate-700/50 px-2 py-2 min-h-[80px]"
+          className="border-b border-slate-700/50 px-2 py-2 min-h-[90px]"
         >
           <div className="text-[10px] text-gray-500 mb-1">
             {meal.emoji} {meal.label}
@@ -67,6 +107,7 @@ function DayColumn({ dayPlan }: { dayPlan: DayMealPlan }) {
           <MealCell entries={dayPlan.meals[meal.key]} />
         </div>
       ))}
+
       {/* 总计 */}
       <div className="bg-slate-900/50 px-2 py-2 text-center">
         <div className="text-[10px] text-gray-500 mb-1">每日总计</div>

@@ -7,6 +7,8 @@ export interface BodyProfile {
   bodyFat: number;       // %
   goal: 'cut' | 'bulk' | 'maintain';
   dietMethod: 'balanced' | 'carb-cycle' | 'low-carb' | 'high-protein' | 'if-16-8';
+  targetWeight: number;  // 目标体重 kg
+  cookingPreference: 'cook' | 'nocook';  // 开火/不开火
 }
 
 // ========== AI 分析结果 ==========
@@ -20,6 +22,8 @@ export interface BodyAnalysis {
     carbs: number;     // g
     fat: number;       // g
   };
+  estimatedDaysToGoal: number;   // 预计达到目标体重天数
+  weeklyWeightChange: number;     // 每周预计体重变化 kg（正=增重，负=减重）
   summary: string;
 }
 
@@ -36,9 +40,14 @@ export interface PantryItem {
     fat: number;        // g/100g
     fiber?: number;     // g/100g
   };
-  quantity?: number;    // 当前有多少份
-  unit?: string;        // 单位 (e.g. 个, g, 袋)
+  totalQuantity: number;    // 总量（以 unit 为单位）
+  remainingQuantity: number; // 剩余数量
+  unit: string;             // 单位 e.g. "g", "个", "袋", "瓶", "盒"
+  brand?: string;           // 品牌名 (AI填充)
+  imageUrl?: string;        // 产品图片URL (AI填充)
+  purchaseLink?: string;    // 购买链接
   bestMealTime?: ('breakfast' | 'lunch' | 'dinner' | 'snack')[];
+  daysToConsume?: number;   // 预计几天消耗完 (根据食谱计算)
   notes?: string;
 }
 
@@ -55,6 +64,16 @@ export interface MealEntry {
   fat: number;            // 脂肪 g
   fromPantry?: boolean;   // 是否来自已有食材
   pantryItemId?: string;  // 对应食材ID
+  pantryItemName?: string;// 对应食材名称
+  cookingMethod?: string; // 烹饪方式 e.g. "即食""冲泡""外卖""煎""蒸"
+}
+
+export interface PantryUsageSummary {
+  pantryItemId: string;
+  name: string;
+  usedPerWeek: number;      // 每周用量
+  remainingWeeks: number;   // 还能用几周
+  daysToEmpty: number;      // 几天后消耗完
 }
 
 export interface DayMealPlan {
@@ -68,11 +87,15 @@ export interface DayMealPlan {
     carbs: number;
     fat: number;
   };
+  carbCyclePhase?: 'high-carb' | 'low-carb' | 'no-carb' | 'medium-carb';  // 碳循环阶段
+  cookingNote?: string;      // 当日烹饪方式备注
 }
 
 export interface WeeklyMealPlan {
   days: DayMealPlan[];
-  generatedAt: number; // timestamp
+  generatedAt: number;
+  pantryUsageSummary?: PantryUsageSummary[];  // 食材消耗预估
+  totalDaysToGoal?: number;  // 计划执行多久达到目标体重
 }
 
 // ========== AI 交互 ==========

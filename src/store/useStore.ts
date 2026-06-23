@@ -13,12 +13,13 @@ const defaultProfile: BodyProfile = {
   bodyFat: 20,
   goal: 'maintain',
   dietMethod: 'balanced',
+  targetWeight: 60,
+  cookingPreference: 'cook',
 };
 
 export const useStore = create<AppState>()(
   persist(
     (set) => ({
-      // 初始数据
       bodyProfile: defaultProfile,
       pantry: [],
       bodyAnalysis: null,
@@ -34,7 +35,14 @@ export const useStore = create<AppState>()(
 
       addPantryItem: (item) =>
         set((s) => ({
-          pantry: [...s.pantry, { ...item, id: item.id || crypto.randomUUID() }],
+          pantry: [
+            ...s.pantry,
+            {
+              ...item,
+              id: item.id || crypto.randomUUID(),
+              remainingQuantity: item.remainingQuantity ?? item.totalQuantity,
+            },
+          ],
         })),
 
       removePantryItem: (id) =>

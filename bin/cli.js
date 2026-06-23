@@ -43,7 +43,7 @@ server.listen(PORT, () => {
 
   // 自动打开浏览器
   const cmd = process.platform === 'win32'
-    ? `start http://localhost:${PORT}`
+    ? `start msedge http://localhost:${PORT}`
     : process.platform === 'darwin'
       ? `open http://localhost:${PORT}`
       : `xdg-open http://localhost:${PORT}`;
