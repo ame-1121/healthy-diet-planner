@@ -293,11 +293,37 @@ export async function generateMealPlan(
   }
 
   if (isCarbCycle) {
-    parts.push('🔄碳循环:高碳2天→中碳2天→低碳2天→无碳1天');
+    // 根据用户日热量计算各阶段的碳水克数
+    const highCarbG = Math.round(analysis.targetCalories * 0.50 / 4);  // 50%热量来自碳水
+    const mediumCarbG = Math.round(analysis.targetCalories * 0.35 / 4); // 35%
+    const lowCarbG = Math.round(analysis.targetCalories * 0.15 / 4);    // 15%
+    const noCarbG = Math.round(30 / 4); // <30g净碳水
+
+    parts.push(`🔄 碳循环（严格遵守！每天必须标注carbCyclePhase且碳水克数必须达标）：
+
+┌──────────┬──────────┬──────────────────────────────┬────────────────┐
+│ 日期     │ 碳水类型 │ carbCyclePhase 值           │ 碳水目标(g)    │
+├──────────┼──────────┼──────────────────────────────┼────────────────┤
+│ 周一 Tue │ 高碳日   │ "high-carb"                  │ ≥${highCarbG}g │
+│ 周二 Wed │ 高碳日   │ "high-carb"                  │ ≥${highCarbG}g │
+│ 周三 Thu │ 中碳日   │ "medium-carb"                │ ≈${mediumCarbG}g│
+│ 周四 Fri │ 中碳日   │ "medium-carb"                │ ≈${mediumCarbG}g│
+│ 周五 Sat │ 低碳日   │ "low-carb"                   │ ≤${lowCarbG}g  │
+│ 周六 Sun │ 低碳日   │ "low-carb"                   │ ≤${lowCarbG}g  │
+│ 周日 Mon │ 无碳日   │ "no-carb"                    │ <${noCarbG}g   │
+└──────────┴──────────┴──────────────────────────────┴────────────────┘
+
+高碳日: 碳水≥${highCarbG}g, 脂肪<50g, 碳水集中在早/午餐+训练前后
+中碳日: 碳水≈${mediumCarbG}g, 脂肪50-70g, 碳水集中在早/午餐
+低碳日: 碳水≤${lowCarbG}g, 脂肪70-90g, 晚餐0碳水
+无碳日: 碳水<${noCarbG}g(仅蔬菜纤维), 脂肪80-100g, 主打蛋白质+大量蔬菜+健康脂肪
+
+每日dailyTotals.carbs必须匹配上表！cookingNote注明碳水量级。`
+    );
   }
 
   // JSON 模板
-  const carbPhaseField = isCarbCycle ? '"carbCyclePhase":"",' : '';
+  const carbPhaseField = isCarbCycle ? '"carbCyclePhase":"high-carb",' : '';
   const suppField = hasSupp ? '"supplements":[{"supplementId":"","name":"","timing":"before_meal|with_meal|after_meal","meal":"breakfast|lunch|dinner|snack"}],' : '';
 
   parts.push(`JSON模板:
@@ -323,6 +349,7 @@ ${suppField}
 ${priorityItems.length>0?'⚠️优先消耗食材前3天用完!':''}
 ${drinkItems.length>0?'🍵饮品需入饮水schedule。':''}
 ${hasSupp?'💊保健品自动安排。':''}
+${isCarbCycle ? '🔄碳循环：每天dailyTotals.carbs和carbCyclePhase必须严格对准上表!!' : ''}
 
 输出完整JSON(7天×4餐，全部字段不可省)。`;
 
