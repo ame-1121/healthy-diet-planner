@@ -54,10 +54,11 @@ function MealCell({ entries }: { entries: MealEntry[] }) {
                  entry.cookingMethod === '煎' ? '🍳' :
                  entry.cookingMethod === '炒' ? '🔥' :
                  entry.cookingMethod === '烤' ? '♨️' :
-                 entry.cookingMethod === '微波' ? '📡' : '🔪'}
+                 entry.cookingMethod === '微波' ? '📡' :
+                 entry.cookingMethod === '炖' ? '🍯' :
+                 entry.cookingMethod === '凉拌' ? '🥗' : '🔪'}
               </span>
             )}
-            {/* 保健品服用时机 */}
             {entry.isSupplement && entry.supplementTiming && (
               <span className={`text-[10px] ml-0.5 ${
                 entry.supplementTiming === 'before_meal' ? 'text-blue-400' :
@@ -91,9 +92,10 @@ function MealCell({ entries }: { entries: MealEntry[] }) {
 function DayColumn({ dayPlan }: { dayPlan: DayMealPlan }) {
   const totals = dayPlan.dailyTotals;
   const phaseStyle = dayPlan.carbCyclePhase ? CARB_PHASE_LABELS[dayPlan.carbCyclePhase] : null;
+  const water = dayPlan.waterIntake;
 
   return (
-    <div className="flex-1 min-w-[170px] border-r border-slate-700 last:border-r-0">
+    <div className="flex-1 min-w-[180px] border-r border-slate-700 last:border-r-0">
       {/* 日期头 */}
       <div className="bg-slate-800 px-2 py-2 text-center border-b border-slate-700 space-y-1">
         <div className="text-xs text-gray-400">{DAYS.find((d) => d.key === dayPlan.day)?.label}</div>
@@ -117,7 +119,7 @@ function DayColumn({ dayPlan }: { dayPlan: DayMealPlan }) {
         </div>
       ))}
 
-      {/* 当日保健品 */}
+      {/* 保健品 */}
       {dayPlan.supplements && dayPlan.supplements.length > 0 && (
         <div className="border-b border-slate-700/50 px-2 py-2 bg-amber-900/10">
           <div className="text-[10px] text-amber-400 mb-1">💊 保健品</div>
@@ -128,6 +130,26 @@ function DayColumn({ dayPlan }: { dayPlan: DayMealPlan }) {
                 {s.timing === 'before_meal' ? '🔺饭前' : s.timing === 'with_meal' ? '🍽️随餐' : '🔻饭后'}
               </span>
               <span className="text-gray-500">· {MEALS.find(m => m.key === s.meal)?.emoji}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 饮水计划 */}
+      {water && water.schedule && water.schedule.length > 0 && (
+        <div className="border-b border-slate-700/50 px-2 py-2 bg-blue-900/10">
+          <div className="text-[10px] text-blue-400 mb-1 flex items-center justify-between">
+            <span>💧 饮水计划</span>
+            <span className="text-blue-400/70">{water.totalMl}ml</span>
+          </div>
+          {water.schedule.map((w, i) => (
+            <div key={i} className="text-[10px] flex items-center gap-1 text-blue-300/70">
+              <span className="text-gray-500 w-10 shrink-0">{w.time}</span>
+              <span>{w.amountMl}ml</span>
+              {w.drinkName && w.drinkName !== '温水' && (
+                <span className="text-blue-400 font-medium">· {w.drinkName}</span>
+              )}
+              {w.note && <span className="text-gray-500">· {w.note}</span>}
             </div>
           ))}
         </div>
@@ -151,10 +173,20 @@ function DayColumn({ dayPlan }: { dayPlan: DayMealPlan }) {
 
 export default function MealCalendar({ plan }: Props) {
   return (
-    <div className="flex overflow-x-auto border border-slate-700 rounded-xl bg-slate-900/30">
-      {plan.days.map((day) => (
-        <DayColumn key={day.day} dayPlan={day} />
-      ))}
+    <div className="space-y-3">
+      {/* 一周饮水量总览 */}
+      {plan.waterOverview && (
+        <div className="bg-blue-900/10 border border-blue-700/30 rounded-lg px-3 py-2 text-xs text-blue-300 flex items-center gap-2">
+          <span>💧</span> {plan.waterOverview}
+        </div>
+      )}
+
+      {/* 日历表 */}
+      <div className="flex overflow-x-auto border border-slate-700 rounded-xl bg-slate-900/30">
+        {plan.days.map((day) => (
+          <DayColumn key={day.day} dayPlan={day} />
+        ))}
+      </div>
     </div>
   );
 }

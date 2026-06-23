@@ -33,13 +33,14 @@ export const UNIT_OPTIONS = ['g', '个', '份', '粒', '包', '袋', '瓶', '盒
 export interface PantryItem {
   id: string;
   name: string;
-  category: 'protein' | 'carb' | 'fat' | 'vegetable' | 'fruit' | 'dairy' | 'supplement' | 'other' | 'unknown';
+  category: 'protein' | 'carb' | 'fat' | 'vegetable' | 'fruit' | 'dairy' | 'drink' | 'supplement' | 'other' | 'unknown';
   nutrition?: {
     calories: number;
     protein: number;
     carbs: number;
     fat: number;
     fiber?: number;
+    caffeine?: number;      // mg/100g, for drinks
   };
   totalQuantity: number;
   remainingQuantity: number;
@@ -47,21 +48,24 @@ export interface PantryItem {
   brand?: string;
   imageUrl?: string;
   purchaseLink?: string;
-  bestMealTime?: ('breakfast' | 'lunch' | 'dinner' | 'snack')[];
+  bestMealTime?: ('breakfast' | 'lunch' | 'dinner' | 'snack' | 'anytime')[];
   daysToConsume?: number;
   notes?: string;
+  priority?: boolean;          // 优先消耗：勾选后在食谱中尽快消耗
+  isDrink?: boolean;          // 是否为泡水/茶饮类
+  drinkType?: 'tea' | 'coffee' | 'herbal' | 'supplement_drink' | 'other_drink';  // 饮品类型
 }
 
 // ========== 维生素 & 保健品 ==========
-export type SupplementTiming = 'before_meal' | 'with_meal' | 'after_meal';
+export type SupplementTiming = 'before_meal' | 'with_meal' | 'after_meal' | 'ai_auto';
 
 export interface Supplement {
   id: string;
   name: string;                // e.g. "维生素C片"
   brand: string;               // e.g. "汤臣倍健"
   dosage: string;              // e.g. "1片/天"
-  timing: SupplementTiming;    // 饭前/随餐/饭后
-  bestMeal?: 'breakfast' | 'lunch' | 'dinner' | 'snack'; // 最佳在哪个餐次
+  timing: SupplementTiming;    // 饭前/随餐/饭后/ai_auto(AI自动决定)
+  bestMeal?: 'breakfast' | 'lunch' | 'dinner' | 'snack';
   notes?: string;
 }
 
@@ -122,12 +126,21 @@ export interface DayMealPlan {
   };
   carbCyclePhase?: 'high-carb' | 'low-carb' | 'medium-carb' | 'no-carb';
   cookingNote?: string;
-  supplements?: {             // 当天推荐的保健品
+  supplements?: {
     supplementId: string;
     name: string;
     timing: SupplementTiming;
     meal: MealSlot;
   }[];
+  waterIntake?: {              // 当日饮水推荐
+    totalMl: number;           // 总饮水量 ml
+    schedule: {
+      time: string;            // 时间 e.g. "08:00"
+      amountMl: number;
+      drinkName?: string;      // 饮品名 e.g. "绿茶"
+      note?: string;
+    }[];
+  };
 }
 
 export interface WeeklyMealPlan {
@@ -135,6 +148,7 @@ export interface WeeklyMealPlan {
   generatedAt: number;
   pantryUsageSummary?: PantryUsageSummary[];
   totalDaysToGoal?: number;
+  waterOverview?: string;      // 一周饮水总览建议
 }
 
 // ========== AI 交互 ==========

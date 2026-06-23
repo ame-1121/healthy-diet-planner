@@ -28,6 +28,8 @@ export default function MealPlan() {
   const isCarbCycle = bodyProfile.dietMethod === 'carb-cycle';
   const hasSupplements = supplements.length > 0;
   const hasTakeout = takeoutDishes.length > 0;
+  const priorityCount = pantry.filter(p => p.priority).length;
+  const drinkCount = pantry.filter(p => p.isDrink || p.category === 'drink').length;
 
   return (
     <div className="space-y-4">
@@ -57,26 +59,38 @@ export default function MealPlan() {
       </div>
 
       {/* 模式提示 */}
-      {isNoCook && (
-        <div className="bg-blue-900/20 border border-blue-700/40 rounded-lg px-3 py-2 text-xs text-blue-300 flex items-center gap-2">
-          <span>🛵</span> 不开火模式
-          {hasTakeout ? <span>· 从 {takeoutDishes.length} 道外卖菜品中选择</span> : <span>· AI 推荐外卖/即食/冲泡类</span>}
-        </div>
-      )}
-      {isCarbCycle && (
-        <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2 text-xs text-amber-300 flex flex-wrap items-center gap-3">
-          <span>🔄 碳循环</span>
-          <span className="bg-green-800/50 px-1.5 py-0.5 rounded">🟢 高碳日</span>
-          <span className="bg-yellow-800/50 px-1.5 py-0.5 rounded">🟡 中碳日</span>
-          <span className="bg-orange-800/50 px-1.5 py-0.5 rounded">🟠 低碳日</span>
-          <span className="bg-red-800/50 px-1.5 py-0.5 rounded">🔴 无碳日</span>
-        </div>
-      )}
-      {hasSupplements && (
-        <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2 text-xs text-amber-300 flex items-center gap-2">
-          <span>💊</span> 已配置 {supplements.length} 项保健品，AI 将自动安排服用时间
-        </div>
-      )}
+      <div className="flex flex-wrap gap-2">
+        {isNoCook && (
+          <div className="bg-blue-900/20 border border-blue-700/40 rounded-lg px-3 py-2 text-xs text-blue-300 flex items-center gap-2">
+            <span>🛵</span> 不开火模式
+            {hasTakeout ? <span>· 从 {takeoutDishes.length} 道外卖菜品中选择</span> : <span>· AI 推荐外卖/即食/冲泡类</span>}
+          </div>
+        )}
+        {isCarbCycle && (
+          <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2 text-xs text-amber-300 flex flex-wrap items-center gap-3">
+            <span>🔄 碳循环</span>
+            <span className="bg-green-800/50 px-1.5 py-0.5 rounded">🟢 高碳日</span>
+            <span className="bg-yellow-800/50 px-1.5 py-0.5 rounded">🟡 中碳日</span>
+            <span className="bg-orange-800/50 px-1.5 py-0.5 rounded">🟠 低碳日</span>
+            <span className="bg-red-800/50 px-1.5 py-0.5 rounded">🔴 无碳日</span>
+          </div>
+        )}
+        {hasSupplements && (
+          <div className="bg-purple-900/20 border border-purple-700/40 rounded-lg px-3 py-2 text-xs text-purple-300 flex items-center gap-2">
+            <span>💊</span> {supplements.length} 项保健品 · 🤖 AI 自动安排最佳服用时间
+          </div>
+        )}
+        {priorityCount > 0 && (
+          <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2 text-xs text-amber-300 flex items-center gap-2">
+            <span>⚡</span> {priorityCount} 项食材标记为优先消耗，AI 将尽快用完
+          </div>
+        )}
+        {drinkCount > 0 && (
+          <div className="bg-blue-900/20 border border-blue-700/40 rounded-lg px-3 py-2 text-xs text-blue-300 flex items-center gap-2">
+            <span>🍵</span> {drinkCount} 项饮品/泡水产品，AI 将规划每日饮水时间
+          </div>
+        )}
+      </div>
 
       {error && <div className="bg-red-900/40 border border-red-700 rounded-lg p-3 text-red-300 text-xs">{error}</div>}
 
@@ -86,7 +100,9 @@ export default function MealPlan() {
           <div className="text-xs text-gray-500 flex items-center gap-3 flex-wrap">
             <span>生成于 {new Date(mealPlan.generatedAt).toLocaleString('zh-CN')}</span>
             <span className="text-emerald-400">🏠 = 已有食材</span>
-            {hasSupplements && <span className="text-amber-400">💊 = 保健品</span>}
+            <span className="text-amber-400">⚡ = 优先消耗</span>
+            {hasSupplements && <span className="text-purple-400">💊 = AI 安排</span>}
+            {drinkCount > 0 && <span className="text-blue-400">💧 = 饮水计划</span>}
             {mealPlan.totalDaysToGoal && <span className="text-amber-400 font-medium">🎯 预计 {mealPlan.totalDaysToGoal} 天达到目标体重</span>}
           </div>
           <MealCalendar plan={mealPlan} />
