@@ -22,33 +22,63 @@ export interface BodyAnalysis {
     carbs: number;     // g
     fat: number;       // g
   };
-  estimatedDaysToGoal: number;   // 预计达到目标体重天数
-  weeklyWeightChange: number;     // 每周预计体重变化 kg（正=增重，负=减重）
+  estimatedDaysToGoal: number;
+  weeklyWeightChange: number;
   summary: string;
 }
 
 // ========== 食材 ==========
+export const UNIT_OPTIONS = ['g', '个', '份', '粒', '包', '袋', '瓶', '盒', '罐', '勺', '杯', '片', '块'] as const;
+
 export interface PantryItem {
   id: string;
   name: string;
-  category: 'protein' | 'carb' | 'fat' | 'vegetable' | 'fruit' | 'dairy' | 'other' | 'unknown';
-  // 每100g营养数据 (AI填充)
+  category: 'protein' | 'carb' | 'fat' | 'vegetable' | 'fruit' | 'dairy' | 'supplement' | 'other' | 'unknown';
   nutrition?: {
-    calories: number;   // kcal/100g
-    protein: number;    // g/100g
-    carbs: number;      // g/100g
-    fat: number;        // g/100g
-    fiber?: number;     // g/100g
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    fiber?: number;
   };
-  totalQuantity: number;    // 总量（以 unit 为单位）
-  remainingQuantity: number; // 剩余数量
-  unit: string;             // 单位 e.g. "g", "个", "袋", "瓶", "盒"
-  brand?: string;           // 品牌名 (AI填充)
-  imageUrl?: string;        // 产品图片URL (AI填充)
-  purchaseLink?: string;    // 购买链接
+  totalQuantity: number;
+  remainingQuantity: number;
+  unit: string;
+  brand?: string;
+  imageUrl?: string;
+  purchaseLink?: string;
   bestMealTime?: ('breakfast' | 'lunch' | 'dinner' | 'snack')[];
-  daysToConsume?: number;   // 预计几天消耗完 (根据食谱计算)
+  daysToConsume?: number;
   notes?: string;
+}
+
+// ========== 维生素 & 保健品 ==========
+export type SupplementTiming = 'before_meal' | 'with_meal' | 'after_meal';
+
+export interface Supplement {
+  id: string;
+  name: string;                // e.g. "维生素C片"
+  brand: string;               // e.g. "汤臣倍健"
+  dosage: string;              // e.g. "1片/天"
+  timing: SupplementTiming;    // 饭前/随餐/饭后
+  bestMeal?: 'breakfast' | 'lunch' | 'dinner' | 'snack'; // 最佳在哪个餐次
+  notes?: string;
+}
+
+// ========== 外卖菜品库 ==========
+export interface TakeoutDish {
+  id: string;
+  name: string;           // 菜品名
+  restaurant: string;     // 店名
+  category: string;       // 分类
+  nutrition: {            // 估算每份
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+  amount: string;         // 份量
+  tags?: string[];        // e.g. "高蛋白""低脂""辣"
 }
 
 // ========== 食谱 ==========
@@ -56,24 +86,27 @@ export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 export type DayOfWeek = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
 
 export interface MealEntry {
-  name: string;           // 食物名
-  amount: string;         // 份量 e.g. "150g"
-  calories: number;       // 卡路里
-  protein: number;        // 蛋白 g
-  carbs: number;          // 碳水 g
-  fat: number;            // 脂肪 g
-  fromPantry?: boolean;   // 是否来自已有食材
-  pantryItemId?: string;  // 对应食材ID
-  pantryItemName?: string;// 对应食材名称
-  cookingMethod?: string; // 烹饪方式 e.g. "即食""冲泡""外卖""煎""蒸"
+  name: string;
+  amount: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fromPantry?: boolean;
+  pantryItemId?: string;
+  pantryItemName?: string;
+  cookingMethod?: string;
+  isSupplement?: boolean;   // 是否为保健品
+  supplementTiming?: SupplementTiming;
+  supplementId?: string;
 }
 
 export interface PantryUsageSummary {
   pantryItemId: string;
   name: string;
-  usedPerWeek: number;      // 每周用量
-  remainingWeeks: number;   // 还能用几周
-  daysToEmpty: number;      // 几天后消耗完
+  usedPerWeek: number;
+  remainingWeeks: number;
+  daysToEmpty: number;
 }
 
 export interface DayMealPlan {
@@ -87,44 +120,53 @@ export interface DayMealPlan {
     carbs: number;
     fat: number;
   };
-  carbCyclePhase?: 'high-carb' | 'low-carb' | 'no-carb' | 'medium-carb';  // 碳循环阶段
-  cookingNote?: string;      // 当日烹饪方式备注
+  carbCyclePhase?: 'high-carb' | 'low-carb' | 'medium-carb' | 'no-carb';
+  cookingNote?: string;
+  supplements?: {             // 当天推荐的保健品
+    supplementId: string;
+    name: string;
+    timing: SupplementTiming;
+    meal: MealSlot;
+  }[];
 }
 
 export interface WeeklyMealPlan {
   days: DayMealPlan[];
   generatedAt: number;
-  pantryUsageSummary?: PantryUsageSummary[];  // 食材消耗预估
-  totalDaysToGoal?: number;  // 计划执行多久达到目标体重
+  pantryUsageSummary?: PantryUsageSummary[];
+  totalDaysToGoal?: number;
 }
 
 // ========== AI 交互 ==========
 export type AILoadingState = 'idle' | 'loading' | 'success' | 'error';
 
 export interface AppState {
-  // 数据
   bodyProfile: BodyProfile;
   pantry: PantryItem[];
+  supplements: Supplement[];
+  takeoutDishes: TakeoutDish[];   // 预存外卖库
   bodyAnalysis: BodyAnalysis | null;
   mealPlan: WeeklyMealPlan | null;
   apiKey: string;
+  showConsumptionDays: boolean;   // 消耗天数显示开关
 
-  // 加载状态
   analysisState: AILoadingState;
   pantrySearchState: AILoadingState;
   mealPlanState: AILoadingState;
-
-  // 错误信息
   error: string | null;
 
-  // Actions
   setBodyProfile: (profile: Partial<BodyProfile>) => void;
   addPantryItem: (item: PantryItem) => void;
   removePantryItem: (id: string) => void;
   updatePantryItem: (id: string, updates: Partial<PantryItem>) => void;
+  addSupplement: (sup: Supplement) => void;
+  removeSupplement: (id: string) => void;
+  updateSupplement: (id: string, updates: Partial<Supplement>) => void;
+  setTakeoutDishes: (dishes: TakeoutDish[]) => void;
   setBodyAnalysis: (analysis: BodyAnalysis | null) => void;
   setMealPlan: (plan: WeeklyMealPlan | null) => void;
   setApiKey: (key: string) => void;
+  setShowConsumptionDays: (show: boolean) => void;
   setAnalysisState: (state: AILoadingState) => void;
   setPantrySearchState: (state: AILoadingState) => void;
   setMealPlanState: (state: AILoadingState) => void;

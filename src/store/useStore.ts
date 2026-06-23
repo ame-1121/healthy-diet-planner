@@ -1,9 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type {
-  AppState, BodyProfile, PantryItem, BodyAnalysis,
-  WeeklyMealPlan, AILoadingState,
-} from '../types';
+import type { AppState, BodyProfile, PantryItem, Supplement, TakeoutDish, AILoadingState } from '../types';
 
 const defaultProfile: BodyProfile = {
   height: 170,
@@ -22,9 +19,12 @@ export const useStore = create<AppState>()(
     (set) => ({
       bodyProfile: defaultProfile,
       pantry: [],
+      supplements: [],
+      takeoutDishes: [],
       bodyAnalysis: null,
       mealPlan: null,
       apiKey: '',
+      showConsumptionDays: true,
       analysisState: 'idle',
       pantrySearchState: 'idle',
       mealPlanState: 'idle',
@@ -53,9 +53,25 @@ export const useStore = create<AppState>()(
           pantry: s.pantry.map((p) => (p.id === id ? { ...p, ...updates } : p)),
         })),
 
+      addSupplement: (sup) =>
+        set((s) => ({
+          supplements: [...s.supplements, { ...sup, id: sup.id || crypto.randomUUID() }],
+        })),
+
+      removeSupplement: (id) =>
+        set((s) => ({ supplements: s.supplements.filter((x) => x.id !== id) })),
+
+      updateSupplement: (id, updates) =>
+        set((s) => ({
+          supplements: s.supplements.map((x) => (x.id === id ? { ...x, ...updates } : x)),
+        })),
+
+      setTakeoutDishes: (dishes) => set({ takeoutDishes: dishes }),
+
       setBodyAnalysis: (analysis) => set({ bodyAnalysis: analysis }),
       setMealPlan: (plan) => set({ mealPlan: plan }),
       setApiKey: (key) => set({ apiKey: key }),
+      setShowConsumptionDays: (show) => set({ showConsumptionDays: show }),
 
       setAnalysisState: (state) => set({ analysisState: state }),
       setPantrySearchState: (state) => set({ pantrySearchState: state }),
@@ -66,6 +82,7 @@ export const useStore = create<AppState>()(
         set({
           bodyProfile: defaultProfile,
           pantry: [],
+          supplements: [],
           bodyAnalysis: null,
           mealPlan: null,
           error: null,
@@ -76,9 +93,12 @@ export const useStore = create<AppState>()(
       partialize: (state) => ({
         bodyProfile: state.bodyProfile,
         pantry: state.pantry,
+        supplements: state.supplements,
+        takeoutDishes: state.takeoutDishes,
         bodyAnalysis: state.bodyAnalysis,
         mealPlan: state.mealPlan,
         apiKey: state.apiKey,
+        showConsumptionDays: state.showConsumptionDays,
       }),
     }
   )
