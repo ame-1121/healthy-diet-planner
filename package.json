@@ -1,0 +1,61 @@
+{
+  "name": "@ame-1121/healthy-diet-planner",
+  "version": "1.0.0",
+  "description": "AI 健康饮食规划工具 — 根据身体数据通过 DeepSeek AI 生成个性化一周饮食计划",
+  "type": "module",
+  "license": "MIT",
+  "author": "ame-1121",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ame-1121/healthy-diet-planner.git"
+  },
+  "homepage": "https://github.com/ame-1121/healthy-diet-planner#readme",
+  "bugs": {
+    "url": "https://github.com/ame-1121/healthy-diet-planner/issues"
+  },
+  "keywords": [
+    "health",
+    "diet",
+    "meal-plan",
+    "nutrition",
+    "ai",
+    "deepseek",
+    "food"
+  ],
+  "bin": {
+    "healthy-diet-planner": "./bin/cli.js"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "tailwindcss": "^4.3.1",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^8.0.12"
+  }
+}
