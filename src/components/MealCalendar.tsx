@@ -182,7 +182,7 @@ export default function MealCalendar({ plan }: Props) {
       )}
 
       {/* 日历表 */}
-      <div className="flex overflow-x-auto border border-slate-700 rounded-xl bg-slate-900/30">
+      <div id="meal-calendar-grid" className="flex overflow-x-auto border border-slate-700 rounded-xl bg-slate-900/30">
         {plan.days.map((day) => (
           <DayColumn key={day.day} dayPlan={day} />
         ))}

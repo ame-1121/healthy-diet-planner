@@ -1,5 +1,7 @@
+import { useRef, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { generateMealPlan } from '../ai/deepseek';
+import { toPng } from 'html-to-image';
 import MealCalendar from './MealCalendar';
 
 export default function MealPlan() {
@@ -8,6 +10,9 @@ export default function MealPlan() {
     mealPlan, setMealPlan, apiKey, setError,
     mealPlanState, setMealPlanState, error,
   } = useStore();
+
+  const calendarRef = useRef<HTMLDivElement>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
 
   const handleGenerate = async () => {
     if (!apiKey.trim()) { setError('请先输入 DeepSeek API Key'); return; }
@@ -21,6 +26,68 @@ export default function MealPlan() {
     } catch (e: any) {
       setError(e.message || '生成食谱失败');
       setMealPlanState('error');
+    }
+  };
+
+  const handleDownloadImage = async () => {
+    // 直接捕获日历网格元素（含完整滚动宽度）
+    const node = document.getElementById('meal-calendar-grid');
+    if (!node) return;
+    setIsCapturing(true);
+    try {
+      // 暂存并移除 overflow hidden/border 以获得干净截图
+      const origOverflow = node.style.overflow;
+      const origBorder = node.style.border;
+      const origBorderRadius = node.style.borderRadius;
+      const origWidth = node.style.width;
+      const origMaxWidth = node.style.maxWidth;
+      node.style.overflow = 'visible';
+      node.style.border = 'none';
+      node.style.borderRadius = '0';
+      node.style.width = `${node.scrollWidth}px`;
+      node.style.maxWidth = 'none';
+
+      const dataUrl = await toPng(node, {
+        width: node.scrollWidth,
+        height: node.scrollHeight,
+        pixelRatio: 2,
+        backgroundColor: '#0f172a',
+      });
+
+      // 恢复样式
+      node.style.overflow = origOverflow;
+      node.style.border = origBorder;
+      node.style.borderRadius = origBorderRadius;
+      node.style.width = origWidth;
+      node.style.maxWidth = origMaxWidth;
+
+      const filename = `AI健康食谱_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.png`;
+
+      // 系统保存对话框（可选择桌面）
+      if ('showSaveFilePicker' in window) {
+        try {
+          const blob = await (await fetch(dataUrl)).blob();
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: filename,
+            types: [{ description: 'PNG 图片', accept: { 'image/png': ['.png'] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          setIsCapturing(false);
+          return;
+        } catch (_) { /* 用户取消，不报错 */ }
+      }
+
+      // fallback 下载
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = dataUrl;
+      link.click();
+    } catch (e: any) {
+      setError(`截图失败：${e.message}`);
+    } finally {
+      setIsCapturing(false);
     }
   };
 
@@ -55,6 +122,15 @@ export default function MealPlan() {
             className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 disabled:from-gray-600 disabled:to-gray-600 text-white font-medium py-2 px-5 rounded-lg transition-all text-sm disabled:cursor-not-allowed">
             {mealPlanState === 'loading' ? '⏳ AI 生成中...' : mealPlan ? '🔄 重新生成' : '✨ 生成一周食谱'}
           </button>
+
+          {mealPlan && (
+            <button
+              onClick={handleDownloadImage}
+              disabled={isCapturing}
+              className="bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-all text-sm disabled:cursor-not-allowed flex items-center gap-1.5">
+              {isCapturing ? '⏳' : '📸'} {isCapturing ? '截图中…' : '下载食谱图片'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -105,7 +181,9 @@ export default function MealPlan() {
             {drinkCount > 0 && <span className="text-blue-400">💧 = 饮水计划</span>}
             {mealPlan.totalDaysToGoal && <span className="text-amber-400 font-medium">🎯 预计 {mealPlan.totalDaysToGoal} 天达到目标体重</span>}
           </div>
-          <MealCalendar plan={mealPlan} />
+          <div ref={calendarRef} className="bg-slate-900 rounded-xl p-2">
+            <MealCalendar plan={mealPlan} />
+          </div>
 
           {mealPlan.pantryUsageSummary && mealPlan.pantryUsageSummary.length > 0 && (
             <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4 space-y-2">
